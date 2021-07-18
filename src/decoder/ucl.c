@@ -105,7 +105,7 @@ static int (getbit_dma_unsafe)(void)
 }
 
 /* adapted from ucl/n2b_d.c */
-void ucldec(void *_src, void *_dst, unsigned sz)
+void ucldec(void *_src, void *_dst, size_t sz)
 {
 	unsigned char *pstart = _src;
 	unsigned char *dst = _dst;

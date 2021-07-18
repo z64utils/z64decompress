@@ -20,6 +20,51 @@
 #define STR32(X) (unsigned)((X[0]<<24)|(X[1]<<16)|(X[2]<<8)|X[3])
 #define DMA_DELETED 0xffffffff /* aka UINT32_MAX */
 
+typedef enum {
+	CODEC_NONE = -1,
+	CODEC_YAZ0,
+	CODEC_LZO,
+	CODEC_UCL,
+	CODEC_APLIB,
+	CODEC_MAX
+} Codec;
+
+typedef struct {
+	const char *name; /* name used for program args */
+	const char *header; /* identifer used in the headers of compressed files */
+	void (*decode)(void *src, void *dst, size_t sz); /* decompression handler function */
+} CodecInfo;
+
+static CodecInfo decCodecInfo[CODEC_MAX] = {
+	[CODEC_YAZ0]  = { "yaz"  , "Yaz0", yazdec },
+	[CODEC_LZO]   = { "lzo"  , "LZO0", lzodec },
+	[CODEC_UCL]   = { "ucl"  , "UCL0", ucldec },
+	[CODEC_APLIB] = { "aplib", "APL0", apldec },
+};
+
+Codec get_codec_type_from_name(const char *name)
+{
+	for (int i = 0; i < CODEC_MAX; i++)
+	{
+		if (!strcmp(name, decCodecInfo[i].name))
+		{
+			return (Codec)i;
+		}
+	}
+	return CODEC_NONE;
+}
+
+Codec get_codec_type_from_header(unsigned int header) {
+	for (int i = 0; i < CODEC_MAX; i++)
+	{
+		if (!memcmp(decCodecInfo[i].header, &header, 4))
+		{
+			return (Codec)i;
+		}
+	}
+	return CODEC_NONE;
+}
+
 /* big-endian bytes to u32 */
 static inline unsigned beU32(void *bytes)
 {
@@ -38,31 +83,33 @@ static inline void wbeU32(void *bytes, unsigned v)
 }
 
 /* decompress a file (returns non-zero if unknown codec) */
-static inline int decompress(void *dst, void *src, int sz)
+static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 {
-	unsigned codec;
-	
 	assert(src);
 	assert(dst);
 	assert(sz);
-	
-	codec = beU32(src);
-	if (codec == STR32("Yaz0"))
-		yazdec(src, dst, sz);
-	else if (codec == STR32("LZO0"))
-		lzodec(src, dst, sz);
-	else if (codec == STR32("UCL0"))
-		ucldec(src, dst, sz);
-	else if (codec == STR32("APL0"))
-		apldec(src, dst, sz);
-	else
-		return 1;
-	
-	return 0;
+
+	/* override codec if requested rather than autodetecting it */
+	if (codecOverride != CODEC_NONE)
+	{
+		decCodecInfo[codecOverride].decode(src, dst, sz);
+		return 0;
+	}
+
+	/* the codec header is the first 4 bytes of the file */
+	Codec codecHeader = get_codec_type_from_header(beU32(src));
+
+	if (codecHeader != CODEC_NONE)
+	{
+		decCodecInfo[codecHeader].decode(src, dst, sz);
+		return 0;
+	}
+
+	return 1;
 }
 
 /* decompress rom (returns pointer to decompressed rom) */
-static inline void *romdec(void *rom, unsigned romSz, unsigned *dstSz)
+static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOverride)
 {
 	unsigned char *comp = rom; /* compressed rom */
 	unsigned char *dec;
@@ -139,6 +186,7 @@ static inline void *romdec(void *rom, unsigned romSz, unsigned *dstSz)
 				dec + Vstart     /* dst */
 				, comp + Pstart  /* src */
 				, Pend - Pstart  /* sz  */
+				, codecOverride  /* codecOverride */
 			);
 			
 			if (err)
@@ -146,10 +194,12 @@ static inline void *romdec(void *rom, unsigned romSz, unsigned *dstSz)
 					, (unsigned)(dma - comp)
 				);
 		}
-		
-		/* not compressed */
 		else
+		{
+			/* not compressed */
 			memcpy(dec + Vstart, comp + Pstart, Vend - Vstart);
+		}
+			
 		
 		/* update dma entry */
 		wbeU32(dma +  8, Vstart);
@@ -198,10 +248,20 @@ static char *quickOutname(char *in)
 static void showargs(void)
 {
 #define P(X) fprintf(stderr, X "\n")
-	P("args: z64decompress \"in-file.z64\" \"out-file.z64\"");
 	P("");
-	P("The \"out-file.z64\" argument is optional. If not specified,");
-	P("\"in-file.decompressed.z64\" will be generated.");
+	P("Usage: z64decompress [file-in] [file-out] [options]");
+	P("      The [out_file] argument is optional if you do not use any options.");
+	P("      If not specified, \"file-in.decompressed.extension\" will be generated.");
+	P("");
+	P("Options:");
+	P("  -h, --help            show this help");
+	P("  -c, --codec           manually choose the compression codec for all files");
+	P("  -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)");
+	P("  -d, --dma-ext         decompress rom using the ZZRTL dma-ext hack");
+	P("");
+	P("Example Usage:");
+	P("   z64decompress \"rom-in.z64\" \"rom-out.z64\"");
+	P("   z64decompress \"file-in.yaz\" \"file-out.bin\" -c yaz0 -i");
 #ifdef _WIN32 /* helps users unfamiliar with command line */
 	P("");
 	P("Alternatively, Windows users can close this window and drop");
@@ -211,57 +271,163 @@ static void showargs(void)
 #undef P
 }
 
+/**************************************
+ **         argument handlers        **
+ **************************************/
+
+/**
+ * Returns a program argument with a field.
+ * For example: `--codec "yaz0"`
+ * This would return "yaz0" if "--codec" is searched for.
+ * 
+ * The alternate arg name can either be NULL if unused, or a shortened alias, such as
+ * `--codec` or `-c`.
+ */
+static const char* get_arg_field(char** argv, const char* argName, const char* altArgName)
+{
+	/* initialize i at 1 to skip program name */
+	for (int i = 1; argv[i] != NULL; i++)
+	{
+		if (!strcmp(argv[i], argName) || !strcmp(argv[i], altArgName))
+		{
+			/* found the arg */
+			return argv[i + 1];
+		}
+	}
+	return NULL;
+}
+
+/**
+ * Returns non-zero if the provided argument was passed to the program.
+ * For example: `--dma-ext`
+ * This would return true if `--dma-ext` was passed to the program and was searched for.
+ * 
+ * The alternate arg name can either be NULL if unused, or a shortened alias, such as
+ * `--codec` or `-c`.
+ */
+static int get_arg_bool(char** argv, const char* argName, const char* altArgName)
+{
+	/* initialize i at 1 to skip program name */
+	for (int i = 1; argv[i] != NULL; i++)
+	{
+		if (!strcmp(argv[i], argName) || !strcmp(argv[i], altArgName))
+		{
+			/* found the arg */
+			return 1;
+		}
+	}
+	return 0;
+}
+
 wow_main
 {
-	char *infile;
-	char *outfile;
-	void *dec = 0;
-	void *rom = 0;
-	unsigned romSz;
-	unsigned decSz;
+	/* input and output file names */
+	char *inFileName, *outfileName;
+
+	/* flag that determines if options are allowed (disabled when no output name is given) */
+	int optionsFlag;
+
+	/* flag that determines if individual files are decompressed or a whole rom */
+	int individualFlag;
+
+	/* flag that determines if dma-ext hack is used */
+	int dmaExtFlag;
+
+	/* name of codec to use (for use with decCodecInfo.name) */
+	Codec codecType = CODEC_NONE;
+	
 	int exitCode = EXIT_SUCCESS;
 	wow_main_argv;
 	
+	/* Always expect the first and second arguments to be the input and output filenames */
 	#define ARG_INFILE  argv[1]
 	#define ARG_OUTFILE argv[2]
 	
+	/* welcome message */
 	fprintf(stderr, "welcome to z64decompress <z64.me>\n");
-	if (argc < 2)
+
+	/* no arguments given to the program or user request help */
+	if (argc <= 1 || get_arg_bool(argv, "--help", "-h"))
 	{
 		showargs();
 		return EXIT_FAILURE;
 	}
 	
-	infile = ARG_INFILE;
-	if (argc < 3)
-		outfile = quickOutname(infile);
-	else
-		outfile = ARG_OUTFILE;
-	
-	/* attempt to load rom */
-	rom = file_load(infile, &romSz);
-	
-	/* attempt to decompress rom */
-	dec = romdec(rom, romSz, &decSz);
-	
-	/* write out rom */
-	file_write(outfile, dec, decSz);
-	
-	fprintf(
-		stderr
-		, "decompressed rom '%s' written successfully\n"
-		, outfile
-	);
-	
-	/* cleanup */
-	free(rom);
-	free(dec);
-	if (outfile != ARG_OUTFILE)
+	/* get the input and output files */
+	inFileName = ARG_INFILE;
+	if (argc <= 2) 
 	{
-		free(outfile);
-#ifdef _WIN32 /* assume user dropped file onto z64decompress.exe */
-		getchar();
-#endif
+		/* user did not specify output file */
+		optionsFlag = 0;
+		outfileName = quickOutname(inFileName);
+	}
+	else
+	{
+		/* user specified output file */
+		optionsFlag = 1;
+		outfileName = ARG_OUTFILE;
+	}
+
+	/* ----------------- parse options ----------------- */
+	if (optionsFlag)
+	{
+		/* booleans */
+		individualFlag = get_arg_bool(argv, "--individual", "-i");
+		dmaExtFlag = get_arg_bool(argv, "--dma-ext", "-d");
+
+		/* fields */
+		const char *codecName = get_arg_field(argv, "--codec", "-c");
+		
+		if (codecName)
+		{
+			codecType = get_codec_type_from_name(codecName);
+
+			if (codecType == CODEC_NONE)
+			{
+				die("ERROR: invalid codec name: %s\n", codecName);
+			}
+		}
+	} 
+	else
+	{
+		/* since no options were given, assume a rom is being used */
+		individualFlag = 0;
+	}
+
+	if (!individualFlag)
+	{
+		/* full rom */
+		size_t romSz;
+		size_t decSz;
+
+		/* attempt to load rom */
+		void *rom = file_load(inFileName, &romSz);
+
+		/* attempt to decompress rom */
+		void *dec = romdec(rom, romSz, &decSz, codecType);
+
+		/* write out rom */
+		file_write(outfileName, dec, decSz);
+
+		fprintf(
+			stderr
+			, "decompressed rom '%s' written successfully\n"
+			, outfileName
+		);
+
+		/* cleanup */
+		free(rom);
+		free(dec);
+
+		if (outfileName != ARG_OUTFILE)
+		{
+			free(outfileName);
+	#ifdef _WIN32 /* assume user dropped file onto z64decompress.exe */
+			getchar();
+	#endif
+		}
+	} else {
+		/* individual files */
 	}
 	
 	return exitCode;

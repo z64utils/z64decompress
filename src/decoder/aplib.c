@@ -215,7 +215,7 @@ static inline void *aP_depack(void *source, unsigned char *destination)
 }
 
 /* main driver */
-void apldec(void *src, void *dst, unsigned sz)
+void apldec(void *src, void *dst, size_t sz)
 {
 	dec.pstart = src;
 	dec.buf_end = dec.buf + sizeof(dec.buf);

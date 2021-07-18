@@ -28,7 +28,7 @@ unsigned file_size(const char *fn)
 }
 
 /* load a file into an existing buffer */
-void *file_load_into(const char *fn, unsigned *sz, void *dst)
+void *file_load_into(const char *fn, size_t *sz, void *dst)
 {
 	FILE *fp;
 	
@@ -59,7 +59,7 @@ void *file_load_into(const char *fn, unsigned *sz, void *dst)
 }
 
 /* load a file */
-void *file_load(const char *fn, unsigned *sz)
+void *file_load(const char *fn, size_t *sz)
 {
 	unsigned char *dst;
 	

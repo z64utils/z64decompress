@@ -69,7 +69,7 @@ static unsigned char *refill(unsigned char *ip)
 
 
 /* main driver */
-void lzodec(void *_src, void *_dst, unsigned sz)
+void lzodec(void *_src, void *_dst, size_t sz)
 {
 	unsigned char *pstart = _src;
 	unsigned char *op = _dst;

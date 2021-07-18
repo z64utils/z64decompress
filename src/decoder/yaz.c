@@ -182,7 +182,7 @@ L_skip:
 }
 
 /* main driver */
-void yazdec(void *src, void *dst, unsigned sz)
+void yazdec(void *src, void *dst, size_t sz)
 {
 	/* initialize decoder structure */
 	dec.buf_end = dec.buf + sizeof(dec.buf);
