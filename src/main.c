@@ -421,6 +421,10 @@ wow_main
 	} 
 	else
 	{
+		if (dmaExtFlag)
+		{
+			die("ERROR: dma-ext can not be used with individual files!");
+		}
 		/* attempt to decompress individual file */
 		dec = filedec(comp, compSz, &decSz, codecType);
 	}
