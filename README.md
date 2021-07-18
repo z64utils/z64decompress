@@ -3,8 +3,9 @@
 `z64decompress` is a program for decompressing retail Zelda 64 rom files. It also supports roms compressed with [`z64compress`](https://github.com/z64me/z64compress) and its many encoding formats (`yaz`, `lzo`, `ucl`, and `aplib`). The decoders are adapted from those in my [`z64enc`](https://github.com/z64me/z64enc) repo.
 
 ## Usage
-  `z64decompress [file-in] [file-out] [options]`
-  
+```
+  z64decompress [file-in] [file-out] [options]
+```
     The `[out_file]` argument is optional if you do not use any options.
     If not specified, `file-in.decompressed.extension` will be generated.
     Alternatively, Windows users can drop an input rom directly
