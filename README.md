@@ -5,7 +5,7 @@
 ## Usage
 `z64decompress [file-in] [file-out] [options]`
 
-The `[out_file]` argument is optional if you do not use any options.
+The `[file-out]` argument is optional if you do not use any options.
 If not specified, `file-in.decompressed.extension` will be generated.
 Alternatively, Windows users can drop an input rom directly
 onto the executable.

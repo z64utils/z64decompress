@@ -262,7 +262,7 @@ static void showargs(void)
 #define P(X) fprintf(stderr, X "\n")
 	P("");
 	P("Usage: z64decompress [file-in] [file-out] [options]");
-	P("      The [out_file] argument is optional if you do not use any options.");
+	P("      The [file-out] argument is optional if you do not use any options.");
 	P("      If not specified, \"file-in.decompressed.extension\" will be generated.");
 	P("");
 	P("Options:");
