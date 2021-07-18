@@ -4,6 +4,8 @@
 
 ## Usage
   `z64decompress [file-in] [file-out] [options]`
+
+
     The `[out_file]` argument is optional if you do not use any options.
     If not specified, `file-in.decompressed.extension` will be generated.
     Alternatively, Windows users can drop an input rom directly
@@ -12,15 +14,15 @@
   Options:
 ```
   -h, --help            show help information
-  -c, --codec           manually choose the compression codec for all files
+  -c, --codec           manually choose the decompression codec
   -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)
   -d, --dma-ext         decompress rom using the ZZRTL dma-ext hack
 ```
 
   Examples:
 ```
-  z64decompress "rom-in.z64" "rom-out.z64"`
-  z64decompress "file-in.yaz" "file-out.bin" -c yaz0 -i`
+  z64decompress "rom-in.z64" "rom-out.z64"
+  z64decompress "file-in.yaz" "file-out.bin" -c yaz0 -i
 ```
 
 

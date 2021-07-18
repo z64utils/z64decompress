@@ -267,7 +267,7 @@ static void showargs(void)
 	P("");
 	P("Options:");
 	P("  -h, --help            show help information");
-	P("  -c, --codec           manually choose the compression codec for all files");
+	P("  -c, --codec           manually choose the decompression codec");
 	P("  -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)");
 	P("  -d, --dma-ext         decompress rom using the ZZRTL dma-ext hack");
 	P("");
