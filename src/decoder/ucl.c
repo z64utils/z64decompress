@@ -105,7 +105,7 @@ static int (getbit_dma_unsafe)(void)
 }
 
 /* adapted from ucl/n2b_d.c */
-void ucldec(void *_src, void *_dst, size_t sz)
+size_t ucldec(void *_src, void *_dst, size_t sz)
 {
 	unsigned char *pstart = _src;
 	unsigned char *dst = _dst;
@@ -190,5 +190,8 @@ void ucldec(void *_src, void *_dst, size_t sz)
 	dec.dst_end = dst;
 	bb = 0;
 #endif
+
+	/* get the final decompressed size */
+	return dst - (unsigned char*)_dst;
 }
 

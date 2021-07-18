@@ -215,8 +215,10 @@ static inline void *aP_depack(void *source, unsigned char *destination)
 }
 
 /* main driver */
-void apldec(void *src, void *dst, size_t sz)
+size_t apldec(void *src, void *_dst, size_t sz)
 {
+	unsigned char* dst = _dst;
+	
 	dec.pstart = src;
 	dec.buf_end = dec.buf + sizeof(dec.buf);
 	dst = aP_depack(dec.buf_end, dst);
@@ -225,5 +227,7 @@ void apldec(void *src, void *dst, size_t sz)
 	dec.dst_end = dst;
 	dec.buf_end = 0;
 #endif
+	/* get the final decompressed size */
+	return dst - (unsigned char*)_dst;
 }
 

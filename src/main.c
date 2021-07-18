@@ -32,7 +32,7 @@ typedef enum {
 typedef struct {
 	const char *name; /* name used for program args */
 	const char *header; /* identifer used in the headers of compressed files */
-	void (*decode)(void *src, void *dst, size_t sz); /* decompression handler function */
+	size_t (*decode)(void *src, void *dst, size_t sz); /* decompression handler function */
 } CodecInfo;
 
 static CodecInfo decCodecInfo[CODEC_MAX] = {
@@ -54,15 +54,15 @@ Codec get_codec_type_from_name(const char *name)
 	return CODEC_NONE;
 }
 
-Codec get_codec_type_from_header(unsigned int header) {
-	for (int i = 0; i < CODEC_MAX; i++)
-	{
-		if (!memcmp(decCodecInfo[i].header, &header, 4))
-		{
-			return (Codec)i;
-		}
-	}
-	return CODEC_NONE;
+Codec get_codec_type_from_header(const void *header) {
+    for (int i = 0; i < CODEC_MAX; i++)
+    {
+        if (!memcmp(decCodecInfo[i].header, header, 4))
+        {
+            return (Codec)i;
+        }
+    }
+    return CODEC_NONE;
 }
 
 /* big-endian bytes to u32 */
@@ -83,7 +83,7 @@ static inline void wbeU32(void *bytes, unsigned v)
 }
 
 /* decompress a file (returns non-zero if unknown codec) */
-static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
+static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 {
 	Codec codecHeader;
 
@@ -94,20 +94,19 @@ static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	/* override codec if requested rather than autodetecting it */
 	if (codecOverride != CODEC_NONE)
 	{
-		decCodecInfo[codecOverride].decode(src, dst, sz);
-		return 0;
+		return decCodecInfo[codecOverride].decode(src, dst, sz);
 	}
 
 	/* the codec header is the first 4 bytes of the file */
-	codecHeader = get_codec_type_from_header(*(unsigned int*)src);
+	codecHeader = get_codec_type_from_header(src);
 
 	if (codecHeader != CODEC_NONE)
 	{
-		decCodecInfo[codecHeader].decode(src, dst, sz);
-		return 0;
+		return decCodecInfo[codecHeader].decode(src, dst, sz);
 	}
 
-	return 1;
+	die("ERROR: compressed file, unknown encoding");
+	return 0;
 }
 
 /* decompress rom (returns pointer to decompressed rom) */
@@ -184,24 +183,18 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		/* compressed */
 		if (Pend)
 		{
-			int err = decompress(
+			decompress(
 				dec + Vstart     /* dst */
 				, comp + Pstart  /* src */
 				, Pend - Pstart  /* sz  */
 				, codecOverride  /* codecOverride */
 			);
-			
-			if (err)
-				die("dma entry at %08x: compressed file, unknown encoding"
-					, (unsigned)(dma - comp)
-				);
 		}
 		else
 		{
 			/* not compressed */
 			memcpy(dec + Vstart, comp + Pstart, Vend - Vstart);
 		}
-			
 		
 		/* update dma entry */
 		wbeU32(dma +  8, Vstart);
@@ -220,25 +213,16 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 static inline void *filedec(void *file, size_t fileSz, size_t *dstSz, Codec codecOverride) {
 	unsigned char *dec;
 
-	/* TODO: Make this not always assume 8mb */
-	*dstSz = 1024 * 1024 * 8;
-
 	/* allocate file */
-	dec = calloc_safe(*dstSz, 1);
+	dec = calloc_safe(1024 * 1024 * 8, 1);
 	
 	/* decompress */
-	int err = decompress(
+	*dstSz = decompress(
 		dec             /* dst */
 		, file          /* src */
 		, fileSz        /* sz  */
 		, codecOverride /* codecOverride */
 	);
-
-	/* error checking */
-	if (err)
-	{
-		die("failed to decompress individual file, unknown encoding");
-	}
 
 	return dec;
 }
