@@ -273,7 +273,7 @@ static void showargs(void)
 	P("");
 	P("Example Usage:");
 	P("   z64decompress \"rom-in.z64\" \"rom-out.z64\"");
-	P("   z64decompress \"file-in.yaz\" \"file-out.bin\" -c yaz0 -i");
+	P("   z64decompress \"file-in.yaz\" \"file-out.bin\" -c yaz -i");
 #ifdef _WIN32 /* helps users unfamiliar with command line */
 	P("");
 	P("Alternatively, Windows users can close this window and drop");
