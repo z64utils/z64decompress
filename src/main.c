@@ -99,7 +99,7 @@ static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	}
 
 	/* the codec header is the first 4 bytes of the file */
-	codecHeader = get_codec_type_from_header(beU32(src));
+	codecHeader = get_codec_type_from_header(*(unsigned int*)src);
 
 	if (codecHeader != CODEC_NONE)
 	{
