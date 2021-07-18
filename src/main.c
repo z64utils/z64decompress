@@ -266,7 +266,7 @@ static void showargs(void)
 	P("      If not specified, \"file-in.decompressed.extension\" will be generated.");
 	P("");
 	P("Options:");
-	P("  -h, --help            show this help");
+	P("  -h, --help            show help information");
 	P("  -c, --codec           manually choose the compression codec for all files");
 	P("  -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)");
 	P("  -d, --dma-ext         decompress rom using the ZZRTL dma-ext hack");
