@@ -85,9 +85,11 @@ static inline void wbeU32(void *bytes, unsigned v)
 /* decompress a file (returns non-zero if unknown codec) */
 static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 {
-	assert(src);
-	assert(dst);
-	assert(sz);
+	Codec codecHeader;
+
+	assert(src != NULL);
+	assert(dst != NULL);
+	assert(sz != 0);
 
 	/* override codec if requested rather than autodetecting it */
 	if (codecOverride != CODEC_NONE)
@@ -97,7 +99,7 @@ static int decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	}
 
 	/* the codec header is the first 4 bytes of the file */
-	Codec codecHeader = get_codec_type_from_header(beU32(src));
+	codecHeader = get_codec_type_from_header(beU32(src));
 
 	if (codecHeader != CODEC_NONE)
 	{
@@ -215,6 +217,32 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	return dec;
 }
 
+static inline void *filedec(void *file, size_t fileSz, size_t *dstSz, Codec codecOverride) {
+	unsigned char *dec;
+
+	/* TODO: Make this not always assume 8mb */
+	*dstSz = 1024 * 1024 * 8;
+
+	/* allocate file */
+	dec = calloc_safe(*dstSz, 1);
+	
+	/* decompress */
+	int err = decompress(
+		dec             /* dst */
+		, file          /* src */
+		, fileSz        /* sz  */
+		, codecOverride /* codecOverride */
+	);
+
+	/* error checking */
+	if (err)
+	{
+		die("failed to decompress individual file, unknown encoding");
+	}
+
+	return dec;
+}
+
 /* take "infile.z64" and make "infile.decompressed.z64" */
 static char *quickOutname(char *in)
 {
@@ -328,13 +356,21 @@ wow_main
 	int optionsFlag;
 
 	/* flag that determines if individual files are decompressed or a whole rom */
-	int individualFlag;
+	int individualFlag = 0;
 
 	/* flag that determines if dma-ext hack is used */
 	int dmaExtFlag;
 
 	/* name of codec to use (for use with decCodecInfo.name) */
 	Codec codecType = CODEC_NONE;
+
+	/* decompressed file and size */
+	void *dec;
+	size_t decSz;
+
+	/* compressed file and size */
+	void *comp;
+	size_t compSz;
 	
 	int exitCode = EXIT_SUCCESS;
 	wow_main_argv;
@@ -368,15 +404,17 @@ wow_main
 		outfileName = ARG_OUTFILE;
 	}
 
-	/* ----------------- parse options ----------------- */
+	/* parse options */
 	if (optionsFlag)
 	{
+		const char *codecName;
+
 		/* booleans */
 		individualFlag = get_arg_bool(argv, "--individual", "-i");
 		dmaExtFlag = get_arg_bool(argv, "--dma-ext", "-d");
 
 		/* fields */
-		const char *codecName = get_arg_field(argv, "--codec", "-c");
+		codecName = get_arg_field(argv, "--codec", "-c");
 		
 		if (codecName)
 		{
@@ -387,47 +425,41 @@ wow_main
 				die("ERROR: invalid codec name: %s\n", codecName);
 			}
 		}
+	}
+
+	/* attempt to load file */
+	comp = file_load(inFileName, &compSz);
+	
+	if (!individualFlag)
+	{
+		/* attempt to decompress rom file */
+		dec = romdec(comp, compSz, &decSz, codecType);
 	} 
 	else
 	{
-		/* since no options were given, assume a rom is being used */
-		individualFlag = 0;
+		/* attempt to decompress individual file */
+		dec = filedec(comp, compSz, &decSz, codecType);
 	}
 
-	if (!individualFlag)
+	/* write out file */
+	file_write(outfileName, dec, decSz);
+
+	fprintf(
+		stderr
+		, "decompressed rom '%s' written successfully\n"
+		, outfileName
+	);
+
+	/* cleanup */
+	free(comp);
+	free(dec);
+
+	if (outfileName != ARG_OUTFILE)
 	{
-		/* full rom */
-		size_t romSz;
-		size_t decSz;
-
-		/* attempt to load rom */
-		void *rom = file_load(inFileName, &romSz);
-
-		/* attempt to decompress rom */
-		void *dec = romdec(rom, romSz, &decSz, codecType);
-
-		/* write out rom */
-		file_write(outfileName, dec, decSz);
-
-		fprintf(
-			stderr
-			, "decompressed rom '%s' written successfully\n"
-			, outfileName
-		);
-
-		/* cleanup */
-		free(rom);
-		free(dec);
-
-		if (outfileName != ARG_OUTFILE)
-		{
-			free(outfileName);
-	#ifdef _WIN32 /* assume user dropped file onto z64decompress.exe */
-			getchar();
-	#endif
-		}
-	} else {
-		/* individual files */
+		free(outfileName);
+#ifdef _WIN32 /* assume user dropped file onto z64decompress.exe */
+		getchar();
+#endif
 	}
 	
 	return exitCode;
