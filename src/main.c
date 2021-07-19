@@ -109,6 +109,121 @@ static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	return 0;
 }
 
+
+
+/* decompress rom that uses the ZZRTL dma-ext hack (returns pointer to decompressed rom) */
+static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstSz, Codec codecOverride)
+{
+	#define COMPRESSED (1 << 31)
+	#define OVERLAP (1 <<  0)
+	#define HEADER (1 <<  1)
+	#define PMASK (~(COMPRESSED | OVERLAP | HEADER))
+	
+	/* macros for accessing dma entries */
+	#define Vstart(X)   (beU32(((unsigned char *)X) + 0 * 4))
+	#define Pbits(X)    (beU32(((unsigned char *)X) + 1 * 4))
+	#define Pstart(X)   (Pbits(X) & PMASK)
+	#define Vend(X)     (beU32(((unsigned char *)X) + 2 * 4))
+
+	#define Traverse(X) X = (((unsigned char*)X) + ((Pbits(X) & OVERLAP) ? 2 : 3) * 4)
+	
+	unsigned char* dmaStart = NULL;
+	unsigned char* dmaEnd = NULL;
+	unsigned char *dmaCur;
+	unsigned char *dec; // decompressed rom in ram
+
+	/* ensure that dstSz is at least the size of the rom itself, but we will correct the value later */
+	*dstSz = romSz;
+
+	/* check to make sure a codec is provided since with dma-ext the autodetection will fail */
+	if (codecOverride == CODEC_NONE)
+	{
+		die("ERROR: dma-ext requires a codec to to be provided");
+		return NULL;
+	}
+	
+	/* find dmadata in rom */
+	for (dmaCur = rom; (unsigned)(dmaCur - rom) < romSz - 32; dmaCur += 0x10)
+	{
+		/* it is expected that dma-ext dmadata will start with this entry */
+		static unsigned char dmaExtStartMagic[] = {
+			0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x01,
+			0x00, 0x00, 0x10, 0x60,
+			0x00, 0x00, 0x10, 0x61,
+			0x00, 0x01, 0x2F, 0x70,
+		};
+
+		/* check if the magic value is found */
+		if (!memcmp(dmaCur, dmaExtStartMagic, sizeof(dmaExtStartMagic)))
+		{
+			/* found the start */
+			dmaStart = dmaCur;
+
+			/* dmadata is confirmed to be found, now let's find the end of dmadata */
+			/* we will also determine the end of the rom in this loop by finding the
+			   largest decompressed end address of all the files */
+			for (dmaCur = dmaStart, Traverse(dmaCur); Vstart(dmaCur) != 0; Traverse(dmaCur))
+			{
+				/* determine the "distal" end of the rom */
+				if (*dstSz < Vend(dmaCur)) {
+					*dstSz *= 2;
+				}
+			}
+			dmaEnd = dmaCur;
+			break;
+		}
+	}
+
+	/* check if the start and end of dmadata was found */
+	if (dmaStart == NULL) {
+		die("ERROR: Could not find the start of dmadata!");
+		return NULL;
+	} else if (dmaEnd == NULL) {
+		die("ERROR: Could not find the end of dmadata!");
+		return NULL;
+	}
+
+	/* allocate decompressed rom */
+	dec = calloc_safe(*dstSz, 1);
+
+	/* transfer files from comp to dec, and decompress them if needed */
+	for (dmaCur = dmaStart; dmaCur < dmaEnd; ) 
+	{
+		/* if file is compressed, decompress it! */
+		if (Pbits(dmaCur) & COMPRESSED)
+		{
+			/* todo: account for weird header stuff */
+			decompress(
+				dec + Vstart(dmaCur), /* dst */
+				rom + Pstart(dmaCur), /* src */
+				beU32(rom + Pstart(dmaCur)), /* sz */
+				codecOverride
+			);
+		}
+		else
+		{
+			/* not compressed */
+			memcpy(dec + Vstart(dmaCur), rom + Pstart(dmaCur), Vend(dmaCur) - Vstart(dmaCur));
+		}
+
+		/* Update dma entries */
+		wbeU32(dmaCur + (4 * 1), (Pbits(dmaCur) & (OVERLAP | HEADER)) | Vstart(dmaCur));
+
+		/* find the next dma table entry */
+		Traverse(dmaCur);
+	}
+
+	/* copy modified dmadata to decompressed rom */
+	memcpy(dec + (dmaStart - rom), dmaStart, dmaEnd - dmaStart);
+	
+	/* update crc */
+	n64crc(dec);
+
+	/* return the pointer to the decompressed rom */
+	return dec;
+}
+
 /* decompress rom (returns pointer to decompressed rom) */
 static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOverride)
 {
@@ -123,17 +238,17 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	dmaStart = 0;
 	for (dma = comp; (unsigned)(dma - comp) < romSz - 32; dma += 16)
 	{
-		/* TODO iQue has the magic value x1050 instead of x1060 */
-		const unsigned char magic[] = { /* table always starts like so */
+		/* TODO iQue has the dmaStartMagic value x1050 instead of x1060 */
+		static const unsigned char dmaStartMagic[] = { /* table always starts like so */
 			0x00,0x00,0x00,0x00   /* Vstart */
 			, 0x00,0x00,0x10,0x60 /* Vend   */
 			, 0x00,0x00,0x00,0x00 /* Pstart */
 			, 0x00,0x00,0x00,0x00 /* Pend   */
 			, 0x00,0x00,0x10,0x60 /* Vstart (next) */
 		};
-		
+
 		/* data doesn't match */
-		if (memcmp(dma, magic, sizeof(magic)))
+		if (memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
 			continue;
 		
 		/* table[IDX].Vstart isn't current rom offset */
@@ -251,7 +366,7 @@ static char *quickOutname(char *in)
 	/* otherwise, so use end of string */
 	ss = slash + strlen(slash);
 	
-	/* extension magic */
+	/* extension dmaStartMagic */
 	strcpy(ss, append);
 	
 	return out;
@@ -343,7 +458,7 @@ wow_main
 	int individualFlag = 0;
 
 	/* flag that determines if dma-ext hack is used */
-	int dmaExtFlag;
+	int dmaExtFlag = 0;
 
 	/* name of codec to use (for use with decCodecInfo.name) */
 	Codec codecType = CODEC_NONE;
@@ -416,8 +531,15 @@ wow_main
 	
 	if (!individualFlag)
 	{
-		/* attempt to decompress rom file */
-		dec = romdec(comp, compSz, &decSz, codecType);
+		/* attempt to decompress rom */
+		if (dmaExtFlag)
+		{
+			dec = romdec_dmaext(comp, compSz, &decSz, codecType);
+		}
+		else
+		{
+			dec = romdec(comp, compSz, &decSz, codecType);
+		}
 	} 
 	else
 	{
@@ -434,7 +556,7 @@ wow_main
 
 	fprintf(
 		stderr
-		, "decompressed rom '%s' written successfully\n"
+		, "decompressed file '%s' written successfully\n"
 		, outfileName
 	);
 
