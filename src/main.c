@@ -109,8 +109,6 @@ static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	return 0;
 }
 
-
-
 /* decompress rom that uses the ZZRTL dmaext hack (returns pointer to decompressed rom) */
 static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstSz, Codec codecOverride)
 {
