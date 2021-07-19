@@ -10,15 +10,15 @@ If not specified, `file-in.decompressed.extension` will be generated.
 Alternatively, Windows users can drop an input rom directly
 onto the executable.
 
-  Options:
+Options:
 ```
--h, --help            show help information
--c, --codec           manually choose the decompression codec
--i, --individual      decompress a compressed file-in into file-out (rather than a full rom)
--d, --dmaext         decompress rom using the ZZRTL dmaext hack
+-h, --help         show help information
+-c, --codec        manually choose the decompression codec
+-i, --individual   decompress a compressed file-in into file-out (rather than a full rom)
+-d, --dmaext       decompress rom using the ZZRTL dmaext hack
 ```
 
-  Examples:
+Examples:
 ```
 z64decompress "rom-in.z64" "rom-out.z64"
 z64decompress "file-in.yaz" "file-out.bin" -c yaz -i
