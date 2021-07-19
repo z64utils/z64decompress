@@ -27,6 +27,7 @@ typedef enum {
 	CODEC_LZO,
 	CODEC_UCL,
 	CODEC_APLIB,
+	CODEC_ZLIB,
 	CODEC_MAX
 } Codec;
 
@@ -41,6 +42,7 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 	[CODEC_LZO]   = { "lzo"  , "LZO0", lzodec },
 	[CODEC_UCL]   = { "ucl"  , "UCL0", ucldec },
 	[CODEC_APLIB] = { "aplib", "APL0", apldec },
+	[CODEC_ZLIB ] = { "zlib" , "ZLIB", zlibdec },
 };
 
 Codec get_codec_type_from_name(const char *name)
@@ -247,22 +249,34 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	unsigned char *dmaStart;
 	unsigned char *dmaEnd = 0;
 	unsigned dmaNum = 0;
+	char iQue = 0;
 	
 	/* find dmadata in rom */
 	dmaStart = 0;
 	for (dma = comp; (unsigned)(dma - comp) < romSz - 32; dma += 16)
 	{
-		/* TODO iQue has the dmaStartMagic value x1050 instead of x1060 */
-		static const unsigned char dmaStartMagic[] = { /* table always starts like so */
+		/* table always starts like so */
+		static const unsigned char dmaStartMagic[] = {
 			0x00,0x00,0x00,0x00   /* Vstart */
 			, 0x00,0x00,0x10,0x60 /* Vend   */
 			, 0x00,0x00,0x00,0x00 /* Pstart */
 			, 0x00,0x00,0x00,0x00 /* Pend   */
 			, 0x00,0x00,0x10,0x60 /* Vstart (next) */
 		};
+		/* iQue has the hard-coded value x1050 instead of x1060 */
+		static const unsigned char dmaStartiQue[] = {
+			0x00,0x00,0x00,0x00   /* Vstart */
+			, 0x00,0x00,0x10,0x50 /* Vend   */
+			, 0x00,0x00,0x00,0x00 /* Pstart */
+			, 0x00,0x00,0x00,0x00 /* Pend   */
+			, 0x00,0x00,0x10,0x50 /* Vstart (next) */
+		};
+
+		/* data matches iQue */
+		iQue = !memcmp(dma, dmaStartiQue, sizeof(dmaStartiQue));
 
 		/* data doesn't match */
-		if (memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
+		if (!iQue && memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
 			continue;
 		
 		/* table[IDX].Vstart isn't current rom offset */
@@ -273,6 +287,7 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		dmaStart = dma;
 		dmaNum = (beU32(dma + STRIDE * IDX + 4) - (dma - comp)) / STRIDE;
 		dmaEnd = dmaStart + dmaNum * STRIDE;
+		break;
 	}
 	
 	/* failed to locate dmadata in rom */
@@ -287,6 +302,10 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		if (Vend > *dstSz)
 			*dstSz *= 2;
 	}
+	
+	/* iQue's default compression is zlib */
+	if (iQue && codecOverride == CODEC_NONE)
+		codecOverride = CODEC_ZLIB;
 	
 	/* allocate decompressed rom */
 	dec = calloc_safe(*dstSz, 1);
@@ -312,6 +331,10 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		/* compressed */
 		if (Pend)
 		{
+			/* iQue files are headerless */
+			if (iQue)
+				Pstart -= 8; 
+			
 			decompress(
 				dec + Vstart     /* dst */
 				, comp + Pstart  /* src */
