@@ -87,7 +87,7 @@ static inline unsigned char *refill(unsigned char *src)
 
 /* decompress yaz data */
 /* yaz0dec by thakis was referenced for this */
-static inline void decompress(unsigned char *src, unsigned char *_dst)
+static inline size_t decompress(unsigned char *src, unsigned char *_dst)
 {
 	unsigned char *dst = _dst;
 	unsigned int currCodeByte;
@@ -179,21 +179,27 @@ L_skip:
 #if MAJORA
 	dec.dst_end = dst;
 #endif
+
+	return uncomp_sz;
 }
 
 /* main driver */
-void yazdec(void *src, void *dst, unsigned sz)
+size_t yazdec(void *src, void *dst, size_t sz)
 {
+	size_t uncomp_sz;
+
 	/* initialize decoder structure */
 	dec.buf_end = dec.buf + sizeof(dec.buf);
 	dec.pstart = src;
 	dec.remaining = sz;
 	
 	/* decompress file */
-	decompress(init(), dst);
+	uncomp_sz = decompress(init(), dst);
 	
 #if MAJORA
 	dec.buf_end = 0;
 #endif
+
+	return uncomp_sz;
 }
 
