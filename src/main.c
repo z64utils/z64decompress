@@ -1,5 +1,6 @@
 /*
  * z64decompress <z64.me>
+ * extra features by @zel640
  *
  * simple z64 ocarina/majora rom decompressor
  *
@@ -493,7 +494,8 @@ wow_main
 	#define ARG_OUTFILE argv[2]
 	
 	/* welcome message */
-	fprintf(stderr, "welcome to z64decompress <z64.me>\n");
+	fprintf(stderr, "welcome to z64decompress 1.0.1 <z64.me>\n");
+	fprintf(stderr, "extra features by @zel640\n");
 
 	/* no arguments given to the program or user request help */
 	if (argc <= 1 || get_arg_bool(argv, "--help", "-h"))
