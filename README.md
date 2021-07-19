@@ -15,7 +15,7 @@ onto the executable.
 -h, --help            show help information
 -c, --codec           manually choose the decompression codec
 -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)
--d, --dma-ext         decompress rom using the ZZRTL dma-ext hack
+-d, --dmaext         decompress rom using the ZZRTL dmaext hack
 ```
 
   Examples:

@@ -111,7 +111,7 @@ static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 
 
 
-/* decompress rom that uses the ZZRTL dma-ext hack (returns pointer to decompressed rom) */
+/* decompress rom that uses the ZZRTL dmaext hack (returns pointer to decompressed rom) */
 static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstSz, Codec codecOverride)
 {
 	#define COMPRESSED (1 << 31)
@@ -135,17 +135,17 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 	/* ensure that dstSz is at least the size of the rom itself, but we will correct the value later */
 	*dstSz = romSz;
 
-	/* check to make sure a codec is provided since with dma-ext the autodetection will fail */
+	/* check to make sure a codec is provided since with dmaext the autodetection will fail */
 	if (codecOverride == CODEC_NONE)
 	{
-		die("ERROR: dma-ext requires a codec to to be provided");
+		die("ERROR: dmaext requires a codec to to be provided");
 		return NULL;
 	}
 	
 	/* find dmadata in rom */
 	for (dmaCur = rom; (unsigned)(dmaCur - rom) < romSz - 32; dmaCur += 0x10)
 	{
-		/* it is expected that dma-ext dmadata will start with this entry */
+		/* it is expected that dmaext dmadata will start with this entry */
 		static unsigned char dmaExtStartMagic[] = {
 			0x00, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x01,
@@ -193,13 +193,29 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 		/* if file is compressed, decompress it! */
 		if (Pbits(dmaCur) & COMPRESSED)
 		{
-			/* todo: account for weird header stuff */
-			decompress(
-				dec + Vstart(dmaCur), /* dst */
-				rom + Pstart(dmaCur), /* src */
-				beU32(rom + Pstart(dmaCur)), /* sz */
-				codecOverride
-			);
+            if (Pbits(dmaCur) & HEADER)
+            {
+                /* copy z64ext header */
+                memmove(dec + Vstart(dmaCur), rom + Pstart(dmaCur), 0x10);
+
+                /* decompress file while accounting for the header*/
+                decompress(
+                    dec + Vstart(dmaCur) + 0x10, /* dst */
+                    rom + Pstart(dmaCur) + 0x10, /* src */
+                    beU32(rom + Pstart(dmaCur) + 0x10), /* sz */
+                    codecOverride
+                );
+            }
+			else
+			{
+				/* no z64ext header */
+				decompress(
+					dec + Vstart(dmaCur), /* dst */
+					rom + Pstart(dmaCur), /* src */
+					beU32(rom + Pstart(dmaCur)), /* sz */
+					codecOverride
+				);
+			}
 		}
 		else
 		{
@@ -384,7 +400,7 @@ static void showargs(void)
 	P("  -h, --help            show help information");
 	P("  -c, --codec           manually choose the decompression codec");
 	P("  -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)");
-	P("  -d, --dma-ext         decompress rom using the ZZRTL dma-ext hack");
+	P("  -d, --dmaext         decompress rom using the ZZRTL dmaext hack");
 	P("");
 	P("Example Usage:");
 	P("   z64decompress \"rom-in.z64\" \"rom-out.z64\"");
@@ -426,8 +442,8 @@ static const char* get_arg_field(char** argv, const char* argName, const char* a
 
 /**
  * Returns non-zero if the provided argument was passed to the program.
- * For example: `--dma-ext`
- * This would return true if `--dma-ext` was passed to the program and was searched for.
+ * For example: `--dmaext`
+ * This would return true if `--dmaext` was passed to the program and was searched for.
  * 
  * The alternate arg name can either be NULL if unused, or a shortened alias, such as
  * `--codec` or `-c`.
@@ -457,7 +473,7 @@ wow_main
 	/* flag that determines if individual files are decompressed or a whole rom */
 	int individualFlag = 0;
 
-	/* flag that determines if dma-ext hack is used */
+	/* flag that determines if dmaext hack is used */
 	int dmaExtFlag = 0;
 
 	/* name of codec to use (for use with decCodecInfo.name) */
@@ -510,7 +526,7 @@ wow_main
 
 		/* booleans */
 		individualFlag = get_arg_bool(argv, "--individual", "-i");
-		dmaExtFlag = get_arg_bool(argv, "--dma-ext", "-d");
+		dmaExtFlag = get_arg_bool(argv, "--dmaext", "-d");
 
 		/* fields */
 		codecName = get_arg_field(argv, "--codec", "-c");
@@ -545,7 +561,7 @@ wow_main
 	{
 		if (dmaExtFlag)
 		{
-			die("ERROR: dma-ext can not be used with individual files!");
+			die("ERROR: dmaext can not be used with individual files!");
 		}
 		/* attempt to decompress individual file */
 		dec = filedec(comp, compSz, &decSz, codecType);
