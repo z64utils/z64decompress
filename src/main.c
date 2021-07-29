@@ -1,5 +1,6 @@
 /*
  * z64decompress <z64.me>
+ * extra features by @zel640
  *
  * simple z64 ocarina/majora rom decompressor
  *
@@ -26,6 +27,7 @@ typedef enum {
 	CODEC_LZO,
 	CODEC_UCL,
 	CODEC_APLIB,
+	CODEC_ZLIB,
 	CODEC_MAX
 } Codec;
 
@@ -40,6 +42,7 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 	[CODEC_LZO]   = { "lzo"  , "LZO0", lzodec },
 	[CODEC_UCL]   = { "ucl"  , "UCL0", ucldec },
 	[CODEC_APLIB] = { "aplib", "APL0", apldec },
+	[CODEC_ZLIB ] = { "zlib" , "ZLIB", zlibdec },
 };
 
 // This points to an array detailing whether each file in the rom is compressed or not.
@@ -165,7 +168,6 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 			0x00, 0x00, 0x00, 0x01,
 			0x00, 0x00, 0x10, 0x60,
 			0x00, 0x00, 0x10, 0x61,
-			0x00, 0x01, 0x2F, 0x70,
 		};
 
 		/* check if the magic value is found */
@@ -278,22 +280,34 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	unsigned char *dmaEnd = 0;
 	unsigned dmaNum = 0;
 	int dmaCur; // used for writing to fileIsCompressed
+	char iQue = 0;
 	
 	/* find dmadata in rom */
 	dmaStart = 0;
 	for (dma = comp; (unsigned)(dma - comp) < romSz - 32; dma += 16)
 	{
-		/* TODO iQue has the dmaStartMagic value x1050 instead of x1060 */
-		static const unsigned char dmaStartMagic[] = { /* table always starts like so */
+		/* table always starts like so */
+		static const unsigned char dmaStartMagic[] = {
 			0x00,0x00,0x00,0x00   /* Vstart */
 			, 0x00,0x00,0x10,0x60 /* Vend   */
 			, 0x00,0x00,0x00,0x00 /* Pstart */
 			, 0x00,0x00,0x00,0x00 /* Pend   */
 			, 0x00,0x00,0x10,0x60 /* Vstart (next) */
 		};
+		/* iQue has the hard-coded value x1050 instead of x1060 */
+		static const unsigned char dmaStartiQue[] = {
+			0x00,0x00,0x00,0x00   /* Vstart */
+			, 0x00,0x00,0x10,0x50 /* Vend   */
+			, 0x00,0x00,0x00,0x00 /* Pstart */
+			, 0x00,0x00,0x00,0x00 /* Pend   */
+			, 0x00,0x00,0x10,0x50 /* Vstart (next) */
+		};
+
+		/* data matches iQue */
+		iQue = !memcmp(dma, dmaStartiQue, sizeof(dmaStartiQue));
 
 		/* data doesn't match */
-		if (memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
+		if (!iQue && memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
 			continue;
 		
 		/* table[IDX].Vstart isn't current rom offset */
@@ -309,6 +323,7 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		   compressed and uncompressed files for printing the z64compress args later. */
 		/* Add one for the terminator */
 		fileIsCompressed = calloc(1, sizeof(signed char) * (dmaNum + 1));
+		break;
 	}
 	
 	/* failed to locate dmadata in rom */
@@ -323,6 +338,10 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		if (Vend > *dstSz)
 			*dstSz *= 2;
 	}
+	
+	/* iQue's default compression is zlib */
+	if (iQue && codecOverride == CODEC_NONE)
+		codecOverride = CODEC_ZLIB;
 	
 	/* allocate decompressed rom */
 	dec = calloc_safe(*dstSz, 1);
@@ -348,6 +367,10 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		/* compressed */
 		if (Pend)
 		{
+			/* iQue files are headerless */
+			if (iQue)
+				Pstart -= 8; 
+			
 			decompress(
 				dec + Vstart     /* dst */
 				, comp + Pstart  /* src */
@@ -565,7 +588,8 @@ wow_main
 	#define ARG_OUTFILE argv[2]
 	
 	/* welcome message */
-	fprintf(stderr, "welcome to z64decompress <z64.me>\n");
+	fprintf(stderr, "welcome to z64decompress 1.0.1 <z64.me>\n");
+	fprintf(stderr, "extra features by @zel640\n");
 
 	/* no arguments given to the program or user request help */
 	if (argc <= 1 || get_arg_bool(argv, "--help", "-h"))
