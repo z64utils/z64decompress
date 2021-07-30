@@ -2,3 +2,4 @@ bin/
 o/
 test/
 z64decompress
+*.z64

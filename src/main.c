@@ -45,6 +45,17 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 	[CODEC_ZLIB ] = { "zlib" , "ZLIB", zlibdec },
 };
 
+// This points to an array detailing whether each file in the rom is compressed or not.
+// This allows us to print the arguments that should be passed to the z64compress to recompress the rom.
+// 0 = uncompressed, 1 = compressed, -1 = terminator
+static signed char *fileIsCompressed;
+
+// Save the start of dma data for the z64compress args
+static unsigned dmaStartArg = 0; 
+
+// Save the last used codec for the z64compress args
+static Codec lastUsedCodec = CODEC_NONE;
+
 Codec get_codec_type_from_name(const char *name)
 {
 	for (int i = 0; i < CODEC_MAX; i++)
@@ -97,6 +108,8 @@ static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 	/* override codec if requested rather than autodetecting it */
 	if (codecOverride != CODEC_NONE)
 	{
+		/* save the last used codec for the z64compress args */
+		lastUsedCodec = codecOverride;
 		return decCodecInfo[codecOverride].decode(src, dst, sz);
 	}
 
@@ -105,6 +118,8 @@ static size_t decompress(void *dst, void *src, size_t sz, Codec codecOverride)
 
 	if (codecHeader != CODEC_NONE)
 	{
+		/* save the last used codec for the z64compress args */
+		lastUsedCodec = codecHeader;
 		return decCodecInfo[codecHeader].decode(src, dst, sz);
 	}
 
@@ -132,6 +147,7 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 	unsigned char* dmaEnd = NULL;
 	unsigned char *dmaCur;
 	unsigned char *dec; // decompressed rom in ram
+	int dmaNum; // used for writing to fileIsCompressed
 
 	/* ensure that dstSz is at least the size of the rom itself, but we will correct the value later */
 	*dstSz = romSz;
@@ -184,11 +200,16 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 		return NULL;
 	}
 
+	/* since we now know where the end of dmadata is, we can allocate the list of
+		compressed and uncompressed files for printing the z64compress args later. */
+	/* Add one for the terminator */
+	fileIsCompressed = calloc(1, sizeof(signed char) * (((dmaEnd - dmaStart) / 4) + 1));
+
 	/* allocate decompressed rom */
 	dec = calloc_safe(*dstSz, 1);
 
 	/* transfer files from comp to dec, and decompress them if needed */
-	for (dmaCur = dmaStart; dmaCur < dmaEnd; ) 
+	for (dmaNum = 0, dmaCur = dmaStart; dmaCur < dmaEnd; dmaNum++) 
 	{
 		/* if file is compressed, decompress it! */
 		if (Pbits(dmaCur) & COMPRESSED)
@@ -228,13 +249,22 @@ static inline void *romdec_dmaext(unsigned char *rom, size_t romSz, size_t *dstS
 
 		/* find the next dma table entry */
 		Traverse(dmaCur);
+
+		/* update the compressed info */
+		fileIsCompressed[dmaNum] = (Pbits(dmaCur) & COMPRESSED) ? 1 : 0;
 	}
+
+	/* write the terminator */
+	fileIsCompressed[dmaNum] = -1;
 
 	/* copy modified dmadata to decompressed rom */
 	memcpy(dec + (dmaStart - rom), dmaStart, dmaEnd - dmaStart);
 	
 	/* update crc */
 	n64crc(dec);
+	
+	/* set the start of dmadata for the z64compress args */
+	dmaStartArg = dmaStart - rom;
 
 	/* return the pointer to the decompressed rom */
 	return dec;
@@ -249,6 +279,7 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	unsigned char *dmaStart;
 	unsigned char *dmaEnd = 0;
 	unsigned dmaNum = 0;
+	int dmaCur; // used for writing to fileIsCompressed
 	char iQue = 0;
 	
 	/* find dmadata in rom */
@@ -287,6 +318,11 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		dmaStart = dma;
 		dmaNum = (beU32(dma + STRIDE * IDX + 4) - (dma - comp)) / STRIDE;
 		dmaEnd = dmaStart + dmaNum * STRIDE;
+
+		/* since we now know how many dma entries there are, we can allocate the list of
+		   compressed and uncompressed files for printing the z64compress args later. */
+		/* Add one for the terminator */
+		fileIsCompressed = calloc(1, sizeof(signed char) * (dmaNum + 1));
 		break;
 	}
 	
@@ -311,7 +347,7 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	dec = calloc_safe(*dstSz, 1);
 	
 	/* transfer files from comp to dec */
-	for (dma = dmaStart; dma < dmaEnd; dma += STRIDE)
+	for (dmaCur = 0, dma = dmaStart; dma < dmaEnd; dma += STRIDE, dmaCur++)
 	{
 		unsigned Vstart = beU32(dma +  0); /* virtual addresses */
 		unsigned Vend   = beU32(dma +  4);
@@ -347,17 +383,26 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 			/* not compressed */
 			memcpy(dec + Vstart, comp + Pstart, Vend - Vstart);
 		}
-		
+
+		/* update the compressed info */
+		fileIsCompressed[dmaCur] = (Pend) ? 1 : 0;
+
 		/* update dma entry */
 		wbeU32(dma +  8, Vstart);
 		wbeU32(dma + 12, 0);
 	}
-	
+
+	/* write the terminator */
+	fileIsCompressed[dmaCur] = -1;
+
 	/* copy modified dmadata to decompressed rom */
 	memcpy(dec + (dmaStart - comp), dmaStart, dmaNum * STRIDE);
 	
 	/* update crc */
 	n64crc(dec);
+
+	/* set the start of dmadata for the z64compress args */
+	dmaStartArg = dmaStart - comp;
 	
 	return dec;
 }
@@ -433,6 +478,33 @@ static void showargs(void)
 	getchar();
 #endif
 #undef P
+}
+
+/* creates z64compress args once the rom successfully decompresses */
+static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec codec, unsigned dmaStart)
+{
+	int dmaEntries;
+
+	/* count dma entries */
+	for (dmaEntries = 0; fileIsCompressed[dmaEntries] != -1; dmaEntries++) {}
+
+	/* print the normal z64compress args */
+	fprintf(stdout, "here are your z64compress arguments:\n");
+	fprintf(stdout, "z64compress --in \"%s\" --out \"out.z64\" --mb %d --codec %s --dma \"0x%X,%d\" --compress \"0-END\"",
+	        decFileName,               // use the decompressed file name
+			(int)compSz / (1024*1024), // convert the compressed size in bytes to megabytes
+			decCodecInfo[codec].name,  // use the codec name
+			dmaStart,                  // start of the dma table
+			dmaEntries                 // number of dma entries
+	);
+
+	/* print the file skips */
+	for (int i = 0; i < dmaEntries; i++) {
+		if (!fileIsCompressed[i]) {
+			fprintf(stdout, " --skip \"%d\"", i);
+		}
+	}
+	fprintf(stdout, "\n");
 }
 
 /**************************************
@@ -597,6 +669,9 @@ wow_main
 		, "decompressed file '%s' written successfully\n"
 		, outfileName
 	);
+
+	/* print arguments for z64 compress */
+	printZ64CompressArgs(outfileName, compSz, lastUsedCodec, dmaStartArg);
 
 	/* cleanup */
 	free(comp);
