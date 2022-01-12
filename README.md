@@ -14,8 +14,9 @@ Options:
 ```
 -h, --help         show help information
 -c, --codec        manually choose the decompression codec
--i, --individual   decompress a compressed file-in into file-out (rather than a full rom)
+-i, --individual   decompress a single compressed file (not for use on roms)
 -d, --dmaext       decompress rom using the ZZRTL dmaext hack
+-k, --headerless   files don't have standard 8-byte header
 ```
 
 Examples:
