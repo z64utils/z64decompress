@@ -480,6 +480,18 @@ static void showargs(void)
 #undef P
 }
 
+/* convert the compressed size in bytes to megabytes */
+static int toMiB(int compSz)
+{
+	int mib = compSz / (1024 * 1024);
+	
+	/* round up */
+	if (mib * 1024 * 1024 < compSz)
+		++mib;
+	
+	return mib;
+}
+
 /* creates z64compress args once the rom successfully decompresses */
 static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec codec, unsigned dmaStart)
 {
@@ -491,11 +503,11 @@ static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec c
 	/* print the normal z64compress args */
 	fprintf(stdout, "here are your z64compress arguments:\n");
 	fprintf(stdout, "z64compress --in \"%s\" --out \"out.z64\" --mb %d --codec %s --dma \"0x%X,%d\" --compress \"0-END\"",
-	        decFileName,               // use the decompressed file name
-			(int)compSz / (1024*1024), // convert the compressed size in bytes to megabytes
-			decCodecInfo[codec].name,  // use the codec name
-			dmaStart,                  // start of the dma table
-			dmaEntries                 // number of dma entries
+		decFileName,               // use the decompressed file name
+		toMiB(compSz),             // convert the compressed size in bytes to megabytes
+		decCodecInfo[codec].name,  // use the codec name
+		dmaStart,                  // start of the dma table
+		dmaEntries                 // number of dma entries
 	);
 
 	/* print the file skips */
