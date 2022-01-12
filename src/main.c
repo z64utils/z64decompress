@@ -600,7 +600,7 @@ wow_main
 	#define ARG_OUTFILE argv[2]
 	
 	/* welcome message */
-	fprintf(stderr, "welcome to z64decompress 1.0.2 <z64.me>\n");
+	fprintf(stderr, "welcome to z64decompress 1.0.3 <z64.me>\n");
 	fprintf(stderr, "extra features by @zel640\n");
 
 	/* no arguments given to the program or user request help */
