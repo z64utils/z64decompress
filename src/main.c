@@ -662,6 +662,9 @@ wow_main
 		{
 			dec = romdec(comp, compSz, &decSz, codecType);
 		}
+		
+		/* print arguments for z64compress */
+		printZ64CompressArgs(outfileName, compSz, lastUsedCodec, dmaStartArg);
 	} 
 	else
 	{
@@ -681,9 +684,6 @@ wow_main
 		, "decompressed file '%s' written successfully\n"
 		, outfileName
 	);
-
-	/* print arguments for z64 compress */
-	printZ64CompressArgs(outfileName, compSz, lastUsedCodec, dmaStartArg);
 
 	/* cleanup */
 	free(comp);
