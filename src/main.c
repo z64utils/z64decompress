@@ -45,6 +45,9 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 	[CODEC_ZLIB ] = { "zlib" , "ZLIB", zlibdec },
 };
 
+// non-zero if iQue edition
+static char iQue = 0;
+
 // This points to an array detailing whether each file in the rom is compressed or not.
 // This allows us to print the arguments that should be passed to the z64compress to recompress the rom.
 // 0 = uncompressed, 1 = compressed, -1 = terminator
@@ -280,7 +283,6 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 	unsigned char *dmaEnd = 0;
 	unsigned dmaNum = 0;
 	int dmaCur; // used for writing to fileIsCompressed
-	char iQue = 0;
 	
 	/* find dmadata in rom */
 	dmaStart = 0;
@@ -503,12 +505,13 @@ static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec c
 
 	/* print the normal z64compress args */
 	fprintf(stdout, "here are your z64compress arguments:\n");
-	fprintf(stdout, "z64compress --in \"%s\" --out \"out.z64\" --mb %d --codec %s --dma \"0x%X,%d\" --compress \"0-END\"",
+	fprintf(stdout, "z64compress --in \"%s\" --out \"out.z64\" --mb %d --codec %s --dma \"0x%X,%d\" --compress \"0-END\"%s",
 		decFileName,               // use the decompressed file name
 		toMiB(compSz),             // convert the compressed size in bytes to megabytes
 		decCodecInfo[codec].name,  // use the codec name
 		dmaStart,                  // start of the dma table
-		dmaEntries                 // number of dma entries
+		dmaEntries,                // number of dma entries
+		iQue ? " --headerless" : ""// iQue files are headerless when recompressing
 	);
 
 	/* print the file skips */
