@@ -48,6 +48,9 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 // non-zero if iQue edition
 static char iQue = 0;
 
+// non-zero if files are headerless
+static char headerlessFlag = 0;
+
 // This points to an array detailing whether each file in the rom is compressed or not.
 // This allows us to print the arguments that should be passed to the z64compress to recompress the rom.
 // 0 = uncompressed, 1 = compressed, -1 = terminator
@@ -307,6 +310,8 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 
 		/* data matches iQue */
 		iQue = !memcmp(dma, dmaStartiQue, sizeof(dmaStartiQue));
+		if (iQue)
+			headerlessFlag = 1;
 
 		/* data doesn't match */
 		if (!iQue && memcmp(dma, dmaStartMagic, sizeof(dmaStartMagic)))
@@ -369,8 +374,8 @@ static inline void *romdec(void *rom, size_t romSz, size_t *dstSz, Codec codecOv
 		/* compressed */
 		if (Pend)
 		{
-			/* iQue files are headerless */
-			if (iQue)
+			/* files are headerless */
+			if (headerlessFlag)
 				Pstart -= 8; 
 			
 			decompress(
@@ -470,6 +475,7 @@ static void showargs(void)
 	P("  -i, --individual    decompress a single compressed file");
 	P("                      (not for use on roms)");
 	P("  -d, --dmaext        decompress rom using the ZZRTL dmaext hack");
+	P("  -k, --headerless    files don't have standard 8-byte header");
 	P("");
 	P("Example Usage:");
 	P("   z64decompress \"rom-in.z64\" \"rom-out.z64\"");
@@ -499,6 +505,7 @@ static int toMiB(int compSz)
 static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec codec, unsigned dmaStart)
 {
 	int dmaEntries;
+	const char *headerless = headerlessFlag ? " --headerless" : "";
 
 	/* count dma entries */
 	for (dmaEntries = 0; fileIsCompressed[dmaEntries] != -1; dmaEntries++) {}
@@ -511,7 +518,7 @@ static void printZ64CompressArgs(const char* decFileName, size_t compSz, Codec c
 		decCodecInfo[codec].name,  // use the codec name
 		dmaStart,                  // start of the dma table
 		dmaEntries,                // number of dma entries
-		iQue ? " --headerless" : ""// iQue files are headerless when recompressing
+		headerless                 // files are headerless when recompressing
 	);
 
 	/* print the file skips */
@@ -636,6 +643,7 @@ wow_main
 
 		/* booleans */
 		individualFlag = get_arg_bool(argv, "--individual", "-i");
+		headerlessFlag = get_arg_bool(argv, "--headerless", "-k");
 		dmaExtFlag = get_arg_bool(argv, "--dmaext", "-d");
 
 		/* fields */
