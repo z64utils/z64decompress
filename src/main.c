@@ -459,14 +459,15 @@ static void showargs(void)
 #define P(X) fprintf(stderr, X "\n")
 	P("");
 	P("Usage: z64decompress [file-in] [file-out] [options]");
-	P("      The [file-out] argument is optional if you do not use any options.");
-	P("      If not specified, \"file-in.decompressed.extension\" will be generated.");
+	P("  The [file-out] argument is optional if you do not use any options.");
+	P("  If not specified, \"file-in.decompressed.extension\" will be generated.");
 	P("");
 	P("Options:");
-	P("  -h, --help            show help information");
-	P("  -c, --codec           manually choose the decompression codec");
-	P("  -i, --individual      decompress a compressed file-in into file-out (rather than a full rom)");
-	P("  -d, --dmaext         decompress rom using the ZZRTL dmaext hack");
+	P("  -h, --help          show help information");
+	P("  -c, --codec         manually choose the decompression codec");
+	P("  -i, --individual    decompress a single compressed file");
+	P("                      (not for use on roms)");
+	P("  -d, --dmaext        decompress rom using the ZZRTL dmaext hack");
 	P("");
 	P("Example Usage:");
 	P("   z64decompress \"rom-in.z64\" \"rom-out.z64\"");
@@ -681,7 +682,8 @@ wow_main
 
 	fprintf(
 		stderr
-		, "decompressed file '%s' written successfully\n"
+		, "decompressed %s '%s' written successfully\n"
+		, individualFlag ? "file" : "rom"
 		, outfileName
 	);
 
