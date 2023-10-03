@@ -28,6 +28,7 @@ typedef enum {
 	CODEC_UCL,
 	CODEC_APLIB,
 	CODEC_ZLIB,
+	CODEC_LZ4HC,
 	CODEC_MAX
 } Codec;
 
@@ -43,6 +44,7 @@ static CodecInfo decCodecInfo[CODEC_MAX] = {
 	[CODEC_UCL]   = { "ucl"  , "UCL0", ucldec },
 	[CODEC_APLIB] = { "aplib", "APL0", apldec },
 	[CODEC_ZLIB ] = { "zlib" , "ZLIB", zlibdec },
+	[CODEC_LZ4HC ] = { "lz4hc" , "LZ4H", lz4hcdec },
 };
 
 // non-zero if iQue edition
@@ -611,7 +613,7 @@ wow_main
 	#define ARG_OUTFILE argv[2]
 	
 	/* welcome message */
-	fprintf(stderr, "welcome to z64decompress 1.0.3 <z64.me>\n");
+	fprintf(stderr, "welcome to z64decompress 1.0.4 <z64.me>\n");
 	fprintf(stderr, "extra features by @zel640\n");
 
 	/* no arguments given to the program or user request help */
