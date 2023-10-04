@@ -1,11 +1,18 @@
 /* <z64.me> adapted from the official lz4 decoder at lz4/lib/lz4.c */
 
+#include <lz4.h>
+
 #define Z64DECOMPRESS
+
+#define HEADER_SIZE 4
 
 #define LZ4_MAX_INPUT_SIZE        0x7E000000   /* 2 113 929 216 bytes */
 #define LZ4_COMPRESSBOUND(isize)  ((unsigned)(isize) > (unsigned)LZ4_MAX_INPUT_SIZE ? 0 : (isize) + ((isize)/255) + 16)
 #define KIB(X) ((X) * 1024)
 #define MAX_BUFFER_SIZE KIB(LZ4_BLOCK_SIZE_KIB)
+
+#define LZ4_DECOMPRESS_INPLACE_MARGIN(compressedSize)          (((compressedSize) >> 8) + 32)
+#define LZ4_DECOMPRESS_INPLACE_BUFFER_SIZE(decompressedSize)   ((decompressedSize) + LZ4_DECOMPRESS_INPLACE_MARGIN(decompressedSize))  /**< note: presumes that compressedSize < decompressedSize. note2: margin is overestimated a bit, since it could use compressedSize instead */
 
 #ifdef Z64DECOMPRESS
 	#include <stdio.h>
@@ -19,7 +26,6 @@
 	typedef uint64_t u64;
 	
 	#define PTR_t void *
-	#define HEADER_SIZE 8
 	#define LZ4_BLOCK_SIZE_KIB (1024 * 64) // gets expanded to a generous 64 MiB
 	
 	void DmaMgr_DmaRomToRam(PTR_t src, void *dst, unsigned sz)
@@ -28,7 +34,6 @@
 	}
 #else
 	#define PTR_t uintptr_t
-	#define HEADER_SIZE 8
 	
 	#include "global.h"
 #endif
@@ -196,36 +201,41 @@ static void DmaRomToRam(PTR_t *src, void *dst, unsigned sz)
 	#endif
 }
 
-unsigned int GetSize(PTR_t *src)
+size_t lz4hcdec(PTR_t src, void *dst_, size_t compSz)
 {
-	uint8_t sizePtr[4];
+	PTR_t srcTmp = src;
+	u8 *dstStart = dst_;
+	u8 *dst = dstStart;
+	u8 *dstEnd;
+	u8 *tail;
+	size_t decSz;
 	
-	DmaRomToRam(src, sizePtr, sizeof(sizePtr));
+	// read the header
+	DmaRomToRam(&srcTmp, dst, 16);
 	
-	return (sizePtr[0] << 24) | (sizePtr[1] << 16) | (sizePtr[2] << 8) | (sizePtr[3] << 0);
-}
-
-size_t lz4hcdec(PTR_t src, void *dst_, size_t sz)
-{
-	// skip the header
-	if (HEADER_SIZE > 0)
-		GetSize(&src); // skip 'lz4h'
+	// 'lz4h' is present, so skip it
+	if (HEADER_SIZE)
+		dst += 4;
 	
-	uint8_t *dst = dst_;
-	uint8_t *dstEnd = dst + (GetSize(&src) & 0xffffff);
+	// 24-bit decSz
+	decSz = (dst[1] << 16) | (dst[2] << 8) | (dst[3]);
 	
-	sz = dstEnd - dst;
+	dst = dstStart;
 	
-	while (dst < dstEnd)
-	{
-		static uint8_t tmp[LZ4_COMPRESSBOUND(MAX_BUFFER_SIZE)];
-		uint32_t blockSize = GetSize(&src);
-		
-		DmaRomToRam(&src, tmp, blockSize);
-		
-		dst += LZ4_decompress_unsafe_generic(tmp, dst, blockSize);
-	}
+	printf("%.5s %08x\n", dst, decSz);
 	
-	return sz;
+	// set up for in-place decompression
+	dstEnd = dst + decSz;
+	tail = dstEnd + (LZ4_DECOMPRESS_INPLACE_MARGIN(compSz) - compSz);
+	
+	// perform in-place decompression
+	DmaRomToRam(&src, tail - (HEADER_SIZE + 4), ((compSz + 15) >> 4) << 4);
+	printf("tail %02x %02x %02x %02x\n", tail[0], tail[1], tail[2], tail[3]);
+	printf("tail %02x %02x %02x %02x\n", tail[4], tail[5], tail[6], tail[7]);
+	printf("tail %02x %02x %02x %02x\n", tail[8], tail[9], tail[10], tail[11]);
+	//LZ4_decompress_unsafe_generic(tail, dst, compSz - (HEADER_SIZE + 4));
+	LZ4_decompress_safe(tail, dst, compSz - (HEADER_SIZE + 4), decSz);
+	
+	return decSz;
 }
 
