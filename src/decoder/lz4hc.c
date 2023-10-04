@@ -1,7 +1,5 @@
 /* <z64.me> adapted from the official lz4 decoder at lz4/lib/lz4.c */
 
-#include <lz4.h>
-
 #define Z64DECOMPRESS
 
 #define HEADER_SIZE 4
@@ -20,6 +18,7 @@
 	#include <string.h>
 	#include <stddef.h>
 	#include <stddef.h>
+	#include <stdlib.h>
 	
 	typedef uint8_t u8;
 	typedef uint16_t u16;
@@ -209,6 +208,7 @@ size_t lz4hcdec(PTR_t src, void *dst_, size_t compSz)
 	u8 *dstEnd;
 	u8 *tail;
 	size_t decSz;
+	size_t compSzAligned = compSz;
 	
 	// read the header
 	DmaRomToRam(&srcTmp, dst, 16);
@@ -220,21 +220,33 @@ size_t lz4hcdec(PTR_t src, void *dst_, size_t compSz)
 	// 24-bit decSz
 	decSz = (dst[1] << 16) | (dst[2] << 8) | (dst[3]);
 	
+	// derive *actual* compSz and decSz
+	compSz -= decSz & 0xf;
+	decSz &= 0xfffff0;
+	
 	dst = dstStart;
 	
-	printf("%.5s %08x\n", dst, decSz);
+	// generous temporary buffer just in case to avoid corrupting other data
+	// NOTE: you won't need this in-game, but you will need to adjust the
+	//       allocator so that there is enough space allocated for the margin
+	#ifdef Z64DECOMPRESS
+	static void *tmp = 0;
+	if (!tmp)
+		tmp = malloc(4 * 1024 * 1024);
+	dst = tmp;
+	#endif
 	
 	// set up for in-place decompression
 	dstEnd = dst + decSz;
 	tail = dstEnd + (LZ4_DECOMPRESS_INPLACE_MARGIN(compSz) - compSz);
 	
 	// perform in-place decompression
-	DmaRomToRam(&src, tail - (HEADER_SIZE + 4), ((compSz + 15) >> 4) << 4);
-	printf("tail %02x %02x %02x %02x\n", tail[0], tail[1], tail[2], tail[3]);
-	printf("tail %02x %02x %02x %02x\n", tail[4], tail[5], tail[6], tail[7]);
-	printf("tail %02x %02x %02x %02x\n", tail[8], tail[9], tail[10], tail[11]);
-	//LZ4_decompress_unsafe_generic(tail, dst, compSz - (HEADER_SIZE + 4));
-	LZ4_decompress_safe(tail, dst, compSz - (HEADER_SIZE + 4), decSz);
+	DmaRomToRam(&src, tail - (HEADER_SIZE + 4), compSzAligned);
+	decSz = LZ4_decompress_unsafe_generic(tail, dst, compSz - (HEADER_SIZE + 4));
+	
+	#ifdef Z64DECOMPRESS
+	memcpy(dst_, tmp, decSz);
+	#endif
 	
 	return decSz;
 }

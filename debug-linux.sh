@@ -4,5 +4,5 @@ mkdir -p o
 mv *.o o
 
 # build everything else
-gcc -o z64decompress src/*.c o/*.o -Wall -Wextra -llz4 -Og -g
+gcc -o z64decompress src/*.c o/*.o -Wall -Wextra -Og -g
 
