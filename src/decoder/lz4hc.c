@@ -2,6 +2,10 @@
 
 #define Z64DECOMPRESS
 
+// comment this line out to use in-place decompression instead of ringbuffer
+#define USE_RINGBUFFER
+#define RINGBUFFER_SIZE (16 * 1024)
+
 #define HEADER_SIZE 4
 
 #define LZ4_MAX_INPUT_SIZE        0x7E000000   /* 2 113 929 216 bytes */
@@ -22,6 +26,7 @@
 	
 	typedef uint8_t u8;
 	typedef uint16_t u16;
+	typedef uint32_t u32;
 	typedef uint64_t u64;
 	
 	#define PTR_t void *
@@ -36,6 +41,8 @@
 	
 	#include "global.h"
 #endif
+
+static void DmaRomToRam(PTR_t *src, void *dst, unsigned sz);
 
 #ifndef LZ4_BLOCK_SIZE_KIB
 #	error please define LZ4_BLOCK_SIZE_KIB e.g. -DLZ4_BLOCK_SIZE_KIB=64
@@ -70,6 +77,7 @@
 #  endif
 #endif
 
+#ifndef USE_RINGBUFFER
 /* variant for decompress_unsafe()
  * does not know end of input
  * presumes input is well formed
@@ -86,6 +94,7 @@ static u16 LZ4_readLE16(const void* memPtr)
 	const u8* p = memPtr;
 	return (u16)((u16)p[0] + (p[1]<<8));
 }
+#endif
 
 /* core decoder variant for LZ4_decompress_fast*()
  * for legacy support only : these entry points are deprecated.
@@ -100,6 +109,160 @@ static u16 LZ4_readLE16(const void* memPtr)
 #define dictStart 0
 #define dictSize 0
 
+#ifdef USE_RINGBUFFER
+
+static struct decoder
+{
+	PTR_t src;
+	u8 ringbuf[RINGBUFFER_SIZE];
+	u32 ringbufPos;
+	u32 remainingAligned;
+	int remaining;
+} dec;
+
+static inline void Init(PTR_t src, u32 compSz, u32 compSzAligned)
+{
+	dec.remainingAligned = compSzAligned;
+	dec.remaining = compSz;
+	dec.src = src;
+	dec.ringbufPos = 0;
+}
+
+static inline void Refill(void)
+{
+	u32 read = dec.remainingAligned;
+	
+	if (RINGBUFFER_SIZE < read)
+		read = RINGBUFFER_SIZE;
+	
+	dec.remainingAligned -= read;
+	
+	DmaRomToRam(&dec.src, dec.ringbuf, read);
+	dec.ringbufPos = 0;
+}
+
+static inline u8 ReadByte(void)
+{
+	if (dec.ringbufPos >= RINGBUFFER_SIZE)
+		Refill();
+	if (dec.remaining > 0)
+		dec.remaining--;
+	return dec.ringbuf[dec.ringbufPos++];
+}
+
+static inline u16 ReadShort(void)
+{
+	u16 v = ReadByte();
+	
+	return v | (ReadByte() << 8);
+}
+
+static inline void ReadInto(u8 *dst, u32 len)
+{
+	// possibly optimized
+	while (len)
+	{
+		u32 rem = RINGBUFFER_SIZE - dec.ringbufPos;
+		
+		if (len < rem)
+			rem = len;
+		
+		// NOTE: on N64, it may be faster to use the builtin bcopy
+		memcpy(dst, dec.ringbuf + dec.ringbufPos, rem);
+		
+		len -= rem;
+		dst += rem;
+		dec.ringbufPos += rem;
+		dec.remaining -= rem;
+		
+		if (dec.ringbufPos >= RINGBUFFER_SIZE)
+			Refill();
+	}
+	
+	// old, per-byte method (possibly slower)
+	//while (len--)
+	//	*(dst++) = ReadByte();
+}
+
+static inline size_t ReadLongLength(void)
+{
+	size_t b, l = 0;
+	do { b = ReadByte(); l += b; } while (b==255);
+	return l;
+}
+
+size_t LZ4_decompress_unsafe_generic(uint8_t* const ostart)
+{
+	u8* op = (u8*)ostart;
+	const u8* const prefixStart = ostart - prefixSize;
+
+	while (1) {
+		/* start new sequence */
+		unsigned token = ReadByte();
+
+		/* literals */
+		{   size_t ll = token >> ML_BITS;
+			if (ll==15) {
+				/* long literal length */
+				ll += ReadLongLength();
+			}
+			ReadInto(op, ll); /* support in-place decompression */
+			op += ll;
+			if (dec.remaining <= 0)
+				break;
+		}
+
+		/* match */
+		{   size_t ml = token & 15;
+			size_t const offset = ReadShort();
+
+			if (ml==15) {
+				/* long literal length */
+				ml += ReadLongLength();
+			}
+			ml += MINMATCH;
+			
+			{   const u8* match = op - offset;
+
+				/* out of range */
+				if (offset > (size_t)(op - prefixStart) + dictSize) {
+					//DEBUGLOG(6, "offset out of range");
+					return -1;
+				}
+
+				/* check special case : extDict */
+				if (offset > (size_t)(op - prefixStart)) {
+					/* extDict scenario */
+					const u8* const dictEnd = dictStart + dictSize;
+					const u8* extMatch = dictEnd - (offset - (size_t)(op-prefixStart));
+					size_t const extml = (size_t)(dictEnd - extMatch);
+					if (extml > ml) {
+						/* match entirely within extDict */
+						LZ4_memmove(op, extMatch, ml);
+						op += ml;
+						ml = 0;
+					} else {
+						/* match split between extDict & prefix */
+						LZ4_memmove(op, extMatch, extml);
+						op += extml;
+						ml -= extml;
+					}
+					match = prefixStart;
+				}
+
+				/* match copy - slow variant, supporting overlap copy */
+				{   size_t u;
+					for (u=0; u<ml; u++) {
+						op[u] = match[u];
+			}   }   }
+
+			op += ml;
+		} /* match */
+	} /* main loop */
+	return (size_t)(op - ostart);
+}
+
+#else
 size_t LZ4_decompress_unsafe_generic(const uint8_t* const istart, uint8_t* const ostart, int compressedSize)
 {
 	const u8* ip = istart;
@@ -188,6 +351,7 @@ size_t LZ4_decompress_unsafe_generic(const uint8_t* const istart, uint8_t* const
 	} /* main loop */
 	return (size_t)(op - ostart);
 }
+#endif
 
 static void DmaRomToRam(PTR_t *src, void *dst, unsigned sz)
 {
@@ -226,6 +390,14 @@ size_t lz4hcdec(PTR_t src, void *dst_, size_t compSz)
 	
 	dst = dstStart;
 	
+	#ifdef USE_RINGBUFFER
+	Init(src, compSz - (HEADER_SIZE + 4), compSzAligned);
+	Refill();
+	dec.ringbufPos = HEADER_SIZE + 4;
+	decSz = LZ4_decompress_unsafe_generic(dst);
+	(void)tail;
+	(void)dstEnd;
+	#else
 	// generous temporary buffer just in case to avoid corrupting other data
 	// NOTE: you won't need this in-game, but you will need to adjust the
 	//       allocator so that there is enough space allocated for the margin
@@ -246,6 +418,7 @@ size_t lz4hcdec(PTR_t src, void *dst_, size_t compSz)
 	
 	#ifdef Z64DECOMPRESS
 	memcpy(dst_, tmp, decSz);
+	#endif
 	#endif
 	
 	return decSz;
