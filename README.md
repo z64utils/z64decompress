@@ -30,3 +30,9 @@ z64decompress "file-in.yaz" "file-out.bin" -c yaz -i
 ## Building
 I have included shell scripts for building Linux and Windows binaries. Windows binaries are built using a cross compiler ([I recommend `MXE`](https://mxe.cc/)).
 
+Zig may also be used for easy cross-compilation:
+```sh
+zig build -Dtarget=x86_64-linux-musl
+zig build -Dtarget=x86_64-windows
+zig build -Dtarget=aarch64-macos
+```
